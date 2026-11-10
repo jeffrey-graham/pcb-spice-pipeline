@@ -34,16 +34,18 @@ export function joinSubWidthSegments(segments: Segment[]): Segment[] {
   const joined: Segment[] = []
   for (let i = 0; i < segments.length; i++) {
     const s = segments[i]
-    const horizontal = Math.abs(s.a[2] - s.b[2]) < 1e-8 && Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]) > 1e-10
-    if (!horizontal) {
+    const len = Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1])
+    const subWidthHorizontal = Math.abs(s.a[2] - s.b[2]) < 1e-8 && len > 1e-10 && len < s.widthMm
+    if (!subWidthHorizontal) {
       joined.push(s)
       continue
     }
     let end = s.b
     while (i + 1 < segments.length) {
       const next = segments[i + 1]
-      const nextHorizontal = Math.abs(next.a[2] - next.b[2]) < 1e-8 && Math.hypot(next.b[0] - next.a[0], next.b[1] - next.a[1]) > 1e-10
-      if (!nextHorizontal || Math.abs(s.a[2] - next.a[2]) > 1e-8 || Math.abs(s.widthMm - next.widthMm) > 1e-8 || Math.abs(s.thicknessMm - next.thicknessMm) > 1e-8 || Math.hypot(end[0] - s.a[0], end[1] - s.a[1]) >= s.widthMm) break
+      const nextLen = Math.hypot(next.b[0] - next.a[0], next.b[1] - next.a[1])
+      const nextSubWidthHorizontal = Math.abs(next.a[2] - next.b[2]) < 1e-8 && nextLen > 1e-10 && nextLen < next.widthMm
+      if (!nextSubWidthHorizontal || Math.abs(s.a[2] - next.a[2]) > 1e-8 || Math.abs(s.widthMm - next.widthMm) > 1e-8 || Math.abs(s.thicknessMm - next.thicknessMm) > 1e-8 || Math.hypot(end[0] - s.a[0], end[1] - s.a[1]) >= s.widthMm) break
       end = next.b
       i++
     }
