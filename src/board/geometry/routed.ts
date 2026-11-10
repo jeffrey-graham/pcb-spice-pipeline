@@ -4,7 +4,7 @@ import { fail } from '../diagnostics'
 import { connectedSourceIds } from '../connectivity'
 import { subcircuitTree } from '../subcircuit'
 import { selectPort, resolveRouteVias } from './ports'
-import { ringArea as area, polygonContains as contains } from './polygon'
+import { ringArea as area, polygonContains as contains, joinSubWidthSegments } from './polygon'
 import type { CopperPoint as Point, CopperXYZ as XYZ, CopperPolygon as Polygon, CopperSegment as Segment, CopperPath as Path,
   Geometry, LaneMapping, ResolvedModeling, RoutedCopper } from './types'
 
@@ -55,6 +55,7 @@ function routePath(route: LaneMapping['originalRoute'], m: ResolvedModeling): Pa
       if (Math.hypot(b.x - a.x, b.y - a.y) > 1e-10) segments.push({ a: [a.x, a.y, z(m, name)], b: [b.x, b.y, z(m, name)], widthMm: b.width, thicknessMm: l.zMaxMm - l.zMinMm, conductivitySm: l.conductivitySm })
     }
   }
+  segments.splice(0, segments.length, ...joinSubWidthSegments(segments))
   if (!segments.length || segments.some(s => ![...s.a, ...s.b, s.widthMm, s.thicknessMm].every(finite))) fail('route_geometry', 'Nonempty finite copper path required')
   for (let i = 1; i < segments.length; i++) if (distance(segments[i - 1].b, segments[i].a) > 1e-5) fail('route_geometry', 'Disconnected copper route')
   return { segments, terminals: [segments[0].a, segments.at(-1)!.b] }

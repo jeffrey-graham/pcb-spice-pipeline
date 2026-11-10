@@ -1,5 +1,5 @@
 // Planar polygon helpers shared by board (connectivity) and extraction (meshing), mm.
-import type { CopperPoint as Point, CopperPolygon as Polygon } from './types'
+import type { CopperPoint as Point, CopperPolygon as Polygon, CopperSegment as Segment } from './types'
 
 /** Signed shoelace area of a ring: positive when counter-clockwise, so callers can fix winding. */
 export const ringArea = (ring: Point[]): number => ring.reduce((s, p, i) => {
@@ -28,3 +28,26 @@ function inRing(p: Point, ring: Point[]): boolean {
 }
 /** Point in outer ring and in no cutout. */
 export const polygonContains = (p: Point, polygon: Polygon): boolean => inRing(p, polygon[0]) && !polygon.slice(1).some(ring => inRing(p, ring))
+
+/** Joins consecutive sub-width horizontal trace segments on the same layer so curved arcs do not create overlapping FastHenry filaments. */
+export function joinSubWidthSegments(segments: Segment[]): Segment[] {
+  const joined: Segment[] = []
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i]
+    const horizontal = Math.abs(s.a[2] - s.b[2]) < 1e-8 && Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]) > 1e-10
+    if (!horizontal) {
+      joined.push(s)
+      continue
+    }
+    let end = s.b
+    while (i + 1 < segments.length) {
+      const next = segments[i + 1]
+      const nextHorizontal = Math.abs(next.a[2] - next.b[2]) < 1e-8 && Math.hypot(next.b[0] - next.a[0], next.b[1] - next.a[1]) > 1e-10
+      if (!nextHorizontal || Math.abs(s.a[2] - next.a[2]) > 1e-8 || Math.abs(s.widthMm - next.widthMm) > 1e-8 || Math.abs(s.thicknessMm - next.thicknessMm) > 1e-8 || Math.hypot(end[0] - s.a[0], end[1] - s.a[1]) >= s.widthMm) break
+      end = next.b
+      i++
+    }
+    if (Math.hypot(end[0] - s.a[0], end[1] - s.a[1]) > 1e-10) joined.push({ ...s, b: end })
+  }
+  return joined
+}
