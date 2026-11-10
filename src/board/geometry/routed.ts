@@ -4,7 +4,7 @@ import { fail } from '../diagnostics'
 import { connectedSourceIds } from '../connectivity'
 import { subcircuitTree } from '../subcircuit'
 import { selectPort, resolveRouteVias } from './ports'
-import { ringArea as area, polygonContains as contains } from './polygon'
+import { ringArea as area, polygonContains as contains, unionLayerPours } from './polygon'
 import type { CopperPoint as Point, CopperXYZ as XYZ, CopperPolygon as Polygon, CopperSegment as Segment, CopperPath as Path,
   Geometry, LaneMapping, ResolvedModeling, RoutedCopper } from './types'
 
@@ -192,7 +192,7 @@ export function routedCopperGeometry(circuit: CircuitJson, m: ResolvedModeling, 
   if (!net || groundNets.some(e => e.name !== net.name))
     fail('ground_net', 'The channel reference must connect to exactly one ground net (same-named source_net records marked is_ground across subcircuits)')
   const netIds = new Set(circuit.filter(e => e.type === 'source_net').filter(e => connected.has(e.source_net_id)).map(e => e.type === 'source_net' ? e.source_net_id : ''))
-  const pours: RoutedCopper['pours'] = circuit.filter(e => e.type === 'pcb_copper_pour').filter(e => netIds.has(e.source_net_id ?? '')).map(pour => {
+  const pours: RoutedCopper['pours'] = unionLayerPours(circuit.filter(e => e.type === 'pcb_copper_pour').filter(e => netIds.has(e.source_net_id ?? '')).map(pour => {
     if (pour.shape !== 'brep') fail('ground_geometry', `${pour.pcb_copper_pour_id}: polygon BREP copper required`)
     const rings = [pour.brep_shape.outer_ring, ...pour.brep_shape.inner_rings]
     const polygon = rings.map((ring, i) => {
@@ -202,7 +202,7 @@ export function routedCopperGeometry(circuit: CircuitJson, m: ResolvedModeling, 
       return area(points) * (i ? -1 : 1) > 0 ? points : points.reverse()
     })
     return { pcbCopperPourId: pour.pcb_copper_pour_id, layer: pour.layer, polygon, ...layer(m, pour.layer) }
-  })
+  }))
   if (!pours.length) fail('ground_geometry', `${net.name}: no physical ground copper pours found`)
   let receiver: string
   if (m.groundReturn) receiver = selectPort(circuit, m.groundReturn).source_port_id

@@ -1,5 +1,6 @@
 // Planar polygon helpers shared by board (connectivity) and extraction (meshing), mm.
-import type { CopperPoint as Point, CopperPolygon as Polygon } from './types'
+import { Clipper64, PolyTree64, ClipType, FillRule, type PolyPath64, type Paths64 } from 'clipper2-ts'
+import type { CopperPoint as Point, CopperPolygon as Polygon, RoutedCopper } from './types'
 
 /** Signed shoelace area of a ring: positive when counter-clockwise, so callers can fix winding. */
 export const ringArea = (ring: Point[]): number => ring.reduce((s, p, i) => {
@@ -28,3 +29,43 @@ function inRing(p: Point, ring: Point[]): boolean {
 }
 /** Point in outer ring and in no cutout. */
 export const polygonContains = (p: Point, polygon: Polygon): boolean => inRing(p, polygon[0]) && !polygon.slice(1).some(ring => inRing(p, ring))
+
+/** Unions touching or overlapping ground pours on the same copper layer before meshing. */
+export function unionLayerPours(rawPours: RoutedCopper['pours']): RoutedCopper['pours'] {
+  const byLayer = new Map<string, RoutedCopper['pours']>()
+  for (const pour of rawPours) {
+    const group = byLayer.get(pour.layer) ?? []
+    group.push(pour)
+    byLayer.set(pour.layer, group)
+  }
+  const scale = 1e12
+  return [...byLayer.entries()].flatMap(([layerName, layerPours]) => {
+    if (layerPours.length === 1) return layerPours
+    const engine = new Clipper64()
+    const tree = new PolyTree64()
+    const paths: Paths64 = layerPours.flatMap(p => p.polygon.map((ring, i) => {
+      const oriented = ringArea(ring) * (i ? -1 : 1) > 0 ? ring : [...ring].reverse()
+      return oriented.map(([x, y]) => ({ x: Math.round(x * scale), y: Math.round(y * scale) }))
+    }))
+    engine.addSubject(paths)
+    if (!engine.execute(ClipType.Union, FillRule.NonZero, tree)) return layerPours
+    /** Converts one Clipper path node back to millimetre coordinates. */
+    const ringPoints = (node: PolyPath64): Point[] => node.polygon!.map(p => [p.x / scale, p.y / scale] as Point)
+    const unioned: Polygon[] = []
+    /** Collects outer polygon nodes and their immediate hole children from the Clipper tree. */
+    const visit = (node: PolyPath64): void => {
+      if (node.polygon && !node.isHole) {
+        const rings = [ringPoints(node), ...Array.from({ length: node.count }, (_, i) => ringPoints(node.child(i)))]
+        unioned.push(rings.map((ring, i) => ringArea(ring) * (i ? -1 : 1) > 0 ? ring : ring.reverse()))
+      }
+      for (let i = 0; i < node.count; i++) visit(node.child(i))
+    }
+    visit(tree)
+    return unioned.map(polygon => ({
+      ...layerPours[0],
+      pcbCopperPourId: layerPours.map(p => p.pcbCopperPourId).join('+'),
+      layer: layerName,
+      polygon,
+    }))
+  })
+}
